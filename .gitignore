@@ -1,0 +1,76 @@
+# Python
+# Byte-compiled / optimized / compressed files and directories.
+__pycache__/
+*.py[cod]
+*.pyd
+*.bin
+*.so
+
+
+# User-defined environments
+.venv/
+env/
+venv/
+ENV/
+
+
+# Editor/IDE-specific files
+.idea/  # For PyCharm and other IntelliJ IDEs
+.vscode/  # For VS Code
+*.sublime-project
+*.sublime-workspace
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.install.lock
+
+
+# Source distribution of a package
+# For example: your_project_name.egg-info/
+
+
+# PyInstaller
+# Ignores compiled executables and manifest files
+*.exe
+*.manifest
+*.log
+
+
+# Unit test coverage reports
+.coverage
+.coverage.*
+htmlcov/
+
+
+# Type checker cache directory
+.mypy_cache/
+
+
+# Jupyter Notebook files
+.ipynb_checkpoints
+
+
+# Environment variable files
+# Sensitive information, never commit this
+.env
+.flaskenv
+
+
+# AWS Elastic Beanstalk files
+.ebextensions/
+.elasticbeanstalk/
+
+# Docker files
+# .dockerignore should be used for Docker, but these can be here too
+# .dockerignore file can be used to speed up docker build
