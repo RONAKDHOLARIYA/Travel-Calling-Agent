@@ -3,3 +3,4 @@ uvicorn[standard]
 azure-ai-voicelive 
 python-dotenv 
 websockets
+elevenlabs

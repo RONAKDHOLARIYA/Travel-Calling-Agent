@@ -98,7 +98,7 @@ async def setup_session(connection):
     session_config = RequestSession(
         modalities=[Modality.TEXT, Modality.AUDIO],
         instructions=INSTRUCTIONS, # <--- INJECTED HERE
-        voice=AzureStandardVoice(name=VOICE, type="azure-standard"),
+        voice=AzureStandardVoice(name=VOICE, type="azure-standard", rate="1.1"),
         input_audio_format=InputAudioFormat.PCM16,
         output_audio_format=OutputAudioFormat.PCM16,
         turn_detection=ServerVad(threshold=0.5, prefix_padding_ms=300, silence_duration_ms=500),
