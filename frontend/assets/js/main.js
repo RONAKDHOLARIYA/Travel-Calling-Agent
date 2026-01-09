@@ -19,7 +19,7 @@ const statusMsg = document.getElementById("status-msg");
 const visWrapper = document.getElementById("vis-wrapper");
 const chatContainer = document.getElementById("chat-container");
 const SAMPLE_RATE = 24000;
-
+const HOST = "localhost:8000";
 window.onload = async () => {
   await fetchAndRenderVoices();
 };
@@ -27,7 +27,7 @@ window.onload = async () => {
 async function fetchAndRenderVoices() {
   const grid = document.getElementById("avatarGrid");
   try {
-    const res = await fetch("http://localhost:8000/voices");
+    const res = await fetch(`https://${HOST}/voices`);
     const data = await res.json();
 
     grid.innerHTML = ""; // Clear loader
@@ -95,9 +95,7 @@ function closeModal() {
 startBtn.onclick = async () => {
   statusMsg.innerText = "Connecting to Lal Bhai...";
   try {
-    socket = new WebSocket(
-      `ws://localhost:8000/call?voice_id=${selectedVoiceId}`
-    );
+    socket = new WebSocket(`wss://${HOST}/call?voice_id=${selectedVoiceId}`);
     socket.binaryType = "arraybuffer";
 
     socket.onopen = async () => {
@@ -318,7 +316,7 @@ async function submitClone() {
 
   status.innerText = "⏳ Uploading...";
   try {
-    const res = await fetch("http://localhost:8000/clone", {
+    const res = await fetch(`https://${HOST}/clone`, {
       method: "POST",
       body: formData,
     });
