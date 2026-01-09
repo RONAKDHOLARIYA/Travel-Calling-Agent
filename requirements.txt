@@ -4,3 +4,4 @@ azure-ai-voicelive
 python-dotenv 
 websockets
 elevenlabs
+python-multipart

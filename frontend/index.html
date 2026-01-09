@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QuantumBot | AI Voice POC</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link href="./assets/css/style.css" rel="stylesheet" />
+  </head>
+  <body>
+    <div class="main-layout">
+      <header>
+        <h1>QuantumBot Travel Agent Demo</h1>
+      </header>
+
+      <div class="tabs">
+        <div class="tab active" onclick="switchView('call')">📞 Call Agent</div>
+        <div class="tab" onclick="switchView('clone')">🎙️ Clone Voice</div>
+      </div>
+
+      <div class="subtitle">Select a persona below</div>
+      <div id="view-call" class="view active">
+        <button
+          onclick="openModal()"
+          class="btn"
+          style="
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+          "
+        >
+          <span id="currentAvatar" style="font-size: 1.2rem">🤖</span>
+          <span id="currentVoiceName">Select Voice Avatar</span>
+          <span style="opacity: 0.5">▼</span>
+        </button>
+
+        <div class="chat-container" id="chat-container">
+          <div class="message agent-msg">Say, Hello to Start.</div>
+        </div>
+
+        <div class="vis-wrapper" id="vis-wrapper">
+          <div class="orb"></div>
+        </div>
+
+        <div
+          style="
+            margin-top: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+          "
+        >
+          <div
+            id="status-msg"
+            style="text-align: center; font-size: 0.8rem; color: #666"
+          >
+            Offline
+          </div>
+          <button id="startBtn" class="btn btn-primary">Start Call</button>
+          <button
+            id="stopBtn"
+            class="btn"
+            style="background: #ef4444; display: none"
+          >
+            End Call
+          </button>
+        </div>
+      </div>
+
+      <div id="view-clone" class="view">
+        <div
+          style="
+            background: rgba(255, 255, 255, 0.03);
+            padding: 20px;
+            border-radius: 16px;
+            flex: 1;
+          "
+        >
+          <h3 style="margin-top: 0; text-align: center; color: var(--primary)">
+            New Voice
+          </h3>
+
+          <label style="font-size: 0.8rem; color: #aaa">Voice Name</label>
+          <input type="text" id="cloneName" placeholder="e.g. Jarvis" />
+
+          <label style="font-size: 0.8rem; color: #aaa">Record Sample</label>
+          <button
+            id="recordBtn"
+            class="btn btn-record"
+            onmousedown="startRec()"
+            onmouseup="stopRec()"
+            ontouchstart="startRec()"
+            ontouchend="stopRec()"
+          >
+            🎙️ Hold to Record
+          </button>
+
+          <p style="text-align: center; margin: 10px 0; opacity: 0.5">- OR -</p>
+
+          <input
+            type="file"
+            id="cloneFile"
+            style="width: 100%; font-size: 0.8rem"
+          />
+
+          <button
+            onclick="submitClone()"
+            class="btn btn-primary"
+            style="margin-top: 20px"
+          >
+            ⚡ Create & Select
+          </button>
+          <p
+            id="cloneStatus"
+            style="
+              text-align: center;
+              font-size: 0.8rem;
+              margin-top: 10px;
+              color: #aaa;
+            "
+          ></p>
+        </div>
+      </div>
+    </div>
+
+    <div id="voiceModal" class="modal-overlay">
+      <div class="modal-box">
+        <h3 style="margin: 0 0 15px 0; color: white">Select Persona</h3>
+        <div class="avatar-grid" id="avatarGrid">
+          <p style="color: #666; font-size: 0.8rem">Loading voices...</p>
+        </div>
+        <button onclick="closeModal()" class="btn btn-primary">Done</button>
+      </div>
+    </div>
+    <script src="./assets/js/main.js"></script>
+  </body>
+</html>

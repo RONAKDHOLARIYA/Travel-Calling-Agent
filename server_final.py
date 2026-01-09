@@ -4,8 +4,11 @@ import base64
 import json
 import logging
 import re
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-
+import shutil
+from typing import List
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from io import BytesIO
 # --- IMPORTS ---
 from azure.core.credentials import AzureKeyCredential
 from azure.ai.voicelive.aio import connect
@@ -14,30 +17,113 @@ from azure.ai.voicelive.models import (
     ServerVad,
     Modality,
     InputAudioFormat,
-    RequestSession,
+    RequestSession
 )
-from elevenlabs.client import AsyncElevenLabs
+from elevenlabs.client import AsyncElevenLabs 
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
 # --- CONFIGURATION ---
+# Load from environment variables
 AZURE_KEY = os.environ.get("AZURE_VOICELIVE_API_KEY")
 AZURE_ENDPOINT = os.environ.get("AZURE_VOICELIVE_ENDPOINT")
-AZURE_MODEL = os.environ.get("VOICELIVE_MODEL","gpt-4o-realtime-preview")
-
+# Default to 'mini' for cost savings
+AZURE_MODEL = os.environ.get("AZURE_VOICELIVE_MODEL", "gpt-4o-mini-realtime-preview")
 ELEVEN_KEY = os.environ.get("ELEVENLABS_API_KEY")
-# Your Voice ID
-ELEVEN_VOICE_ID = os.environ.get("ELEVEN_VOICE_ID","TRnaQb7q41oL7sV0w6Bu")
 
 app = FastAPI()
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("LalBhaiAgent")
 
-# Initialize Client
+# Enable CORS for frontend access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("VoiceAgent")
+
 client_eleven = AsyncElevenLabs(api_key=ELEVEN_KEY)
 
-# --- PERSONA ---
+# --- 1. API: GET CLONED VOICES ---
+@app.get("/voices")
+async def get_voices():
+    """Fetches ONLY CLONED voices from your ElevenLabs account."""
+    try:
+        response = await client_eleven.voices.get_all()
+        # Filter for 'cloned' category to hide premade/default voices
+        cloned_voices = [
+            {"id": v.voice_id, "name": v.name, "category": v.category} 
+            for v in response.voices 
+            if v.category == 'cloned' 
+        ]
+        return {"voices": cloned_voices}
+    except Exception as e:
+        logger.error(f"Error fetching voices: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- 2. API: CLONE VOICE (FILE UPLOAD ONLY) ---
+@app.post("/clone")
+async def clone_voice(name: str = Form(...), files: List[UploadFile] = File(...)):
+    """
+    Creates a new voice using the official 'ivc.create' method.
+    We fix the 'Corrupted' error by explicitly naming the BytesIO objects.
+    """
+    try:
+        # 1. Check if voice exists (Optimization)
+        response = await client_eleven.voices.get_all()
+        existing_voice = next((v for v in response.voices if v.name == name), None)
+
+        if existing_voice:
+            logger.info(f"Voice '{name}' already exists. Using it.")
+            return {
+                "status": "exists", 
+                "voice_id": existing_voice.voice_id, 
+                "name": existing_voice.name,
+                "message": "Voice already exists! Selected it."
+            }
+
+        # 2. Prepare Files for Official API
+        logger.info(f"Cloning voice '{name}' using ivc.create...")
+        
+        voice_files = []
+        
+        for file in files:
+            # Read the file content into memory
+            content = await file.read()
+            
+            # Create a BytesIO object (Standard Python in-memory file)
+            io_obj = BytesIO(content)
+            
+            # 🔴 CRITICAL FIX: The API needs to know this is an .mp3/.wav
+            # Without this line, you get "400 Bad Request: File corrupted"
+            io_obj.name = file.filename 
+            
+            voice_files.append(io_obj)
+
+        # 3. Call Official SDK Method
+        # Matches your example: client.voices.ivc.create(...)
+        voice = await client_eleven.voices.ivc.create(
+            name=name,
+            description="Cloned via Hybrid Agent",
+            files=voice_files
+        )
+        
+        return {
+            "status": "success", 
+            "voice_id": voice.voice_id, 
+            "name": name,
+            "message": "Successfully created new voice!"
+        }
+
+    except Exception as e:
+        logger.error(f"Cloning error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+# --- 3. WEBSOCKET AGENT ---
 INSTRUCTIONS = """
 Objective
 ---------
@@ -69,37 +155,39 @@ User Personalization
 Ask for basic details early: 'Where are you traveling from?', 'Budget?', 'Type of experience?'. Based on this, provide personalized suggestions.
 """
 
-
 @app.websocket("/call")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, voice_id: str = "TRnaQb7q41oL7sV0w6Bu"):
+    """
+    Accepts 'voice_id' as a query parameter.
+    Example: ws://localhost:8000/call?voice_id=XYZ
+    """
     await websocket.accept()
-    logger.info("Web client connected")
+    logger.info(f"Client connected. Using Voice ID: {voice_id}")
 
-    # Shared State
-    state = {"interrupted": False, "text_buffer": "", "tts_queue": asyncio.Queue()}
+    state = {
+        "interrupted": False,
+        "text_buffer": "",
+        "tts_queue": asyncio.Queue(),
+        "voice_id": voice_id 
+    }
 
     async with connect(
         endpoint=AZURE_ENDPOINT,
         credential=AzureKeyCredential(AZURE_KEY),
-        model=AZURE_MODEL,
+        model=AZURE_MODEL
     ) as azure_connection:
-
-        # 1. Configure Session
+        
         await setup_session(azure_connection)
-
-        # 2. Start Background Tasks
-        receive_task = asyncio.create_task(
-            handle_azure_output(azure_connection, websocket, state)
-        )
+        
+        receive_task = asyncio.create_task(handle_azure_output(azure_connection, websocket, state))
         tts_worker_task = asyncio.create_task(process_tts_queue(websocket, state))
 
         try:
             while True:
-                # 3. Receive Mic Audio from Browser
                 data = await websocket.receive_bytes()
                 audio_base64 = base64.b64encode(data).decode("utf-8")
                 await azure_connection.input_audio_buffer.append(audio=audio_base64)
-
+                
         except WebSocketDisconnect:
             logger.info("Client disconnected")
         except Exception as e:
@@ -108,57 +196,37 @@ async def websocket_endpoint(websocket: WebSocket):
             receive_task.cancel()
             tts_worker_task.cancel()
 
-
 async def setup_session(connection):
-    """Configures Azure: Listen to Audio, Respond with Text Only."""
     session_config = RequestSession(
-        modalities=[Modality.TEXT, Modality.AUDIO],
+        modalities=[Modality.TEXT, Modality.AUDIO], 
         instructions=INSTRUCTIONS,
         input_audio_format=InputAudioFormat.PCM16,
-        # Threshold 0.6 balances sensitivity vs echo
-        turn_detection=ServerVad(
-            threshold=0.6, prefix_padding_ms=300, silence_duration_ms=500
-        ),
+        turn_detection=ServerVad(threshold=0.6, prefix_padding_ms=300, silence_duration_ms=500),
     )
     await connection.session.update(session=session_config)
 
-
 async def handle_azure_output(connection, websocket: WebSocket, state):
-    """Reads Azure events and fills the TTS Queue."""
     try:
         async for event in connection:
-
-            # --- INTERRUPTION LOGIC ---
             if event.type == ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED:
-                logger.info("User speaking... Interrupting!")
                 state["interrupted"] = True
-                state["text_buffer"] = ""
-
-                # Clear the TTS Queue instantly
+                state["text_buffer"] = "" 
                 while not state["tts_queue"].empty():
                     try:
                         state["tts_queue"].get_nowait()
                         state["tts_queue"].task_done()
                     except asyncio.QueueEmpty:
                         break
-
                 await websocket.send_text(json.dumps({"type": "interrupt"}))
 
-            # --- TEXT GENERATION LOGIC ---
             elif event.type == ServerEventType.RESPONSE_AUDIO_TRANSCRIPT_DELTA:
                 state["interrupted"] = False
-                delta = event.delta
-                state["text_buffer"] += delta
+                state["text_buffer"] += event.delta
+                await websocket.send_text(json.dumps({"type": "agent_transcript_delta", "text": event.delta}))
 
-                # Send text for UI bubble
-                await websocket.send_text(
-                    json.dumps({"type": "agent_transcript_delta", "text": delta})
-                )
-
-                # Detect complete sentences to stream audio faster
-                if re.search(r"[.!?।]\s*$", state["text_buffer"]):
+                if re.search(r'[.!?।]\s*$', state["text_buffer"]):
                     sentence = state["text_buffer"].strip()
-                    state["text_buffer"] = ""
+                    state["text_buffer"] = "" 
                     if sentence:
                         await state["tts_queue"].put(sentence)
 
@@ -171,24 +239,20 @@ async def handle_azure_output(connection, websocket: WebSocket, state):
     except Exception as e:
         logger.error(f"Error in Azure Event Loop: {e}")
 
-
 async def process_tts_queue(websocket, state):
-    """Worker: Picks one sentence at a time -> ElevenLabs -> Browser."""
     while True:
         text = await state["tts_queue"].get()
-
         if state["interrupted"]:
             state["tts_queue"].task_done()
             continue
 
         try:
-            # ✅ FINAL FORMAT: PCM 24000 (High Quality, Low Latency)
-            # No 'await' on the convert() call because it's a generator in this version
+            # ✅ RAW PCM 24000
             audio_stream = client_eleven.text_to_speech.convert(
                 text=text,
-                voice_id=ELEVEN_VOICE_ID,
-                model_id="eleven_multilingual_v2",
-                output_format="pcm_24000",
+                voice_id=state["voice_id"], # Dynamic Voice
+                model_id="eleven_multilingual_v2", 
+                output_format="pcm_24000" 
             )
 
             async for chunk in audio_stream:
@@ -201,8 +265,6 @@ async def process_tts_queue(websocket, state):
         finally:
             state["tts_queue"].task_done()
 
-
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)
