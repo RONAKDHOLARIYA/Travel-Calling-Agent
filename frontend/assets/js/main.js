@@ -5,7 +5,10 @@ let inputSource;
 let selectedVoiceId = null,
   mediaRecorder,
   audioChunks = [],
-  recordedBlob = null;
+  recordedBlob = null,
+  speakTimeout,
+  recTimerInterval,
+  isRecording = false;
 // Audio Queue Management
 let nextStartTime = 0;
 let audioQueue = []; // Tracks all active audio nodes
@@ -27,18 +30,17 @@ window.onload = async () => {
 async function fetchAndRenderVoices() {
   const grid = document.getElementById("avatarGrid");
   try {
-    const res = await fetch(`https://${HOST}/voices`);
+    const res = await fetch(`http://${HOST}/voices`);
     const data = await res.json();
 
-    grid.innerHTML = ""; // Clear loader
+    grid.innerHTML = "";
 
     if (data.voices.length === 0) {
       grid.innerHTML =
-        "<p style='color:#888; width:100%;'>No voices found. Go to Clone tab!</p>";
+        "<p style='color:#888; width:100%;'>No voices found. Create one!</p>";
       return;
     }
 
-    // Colors to cycle through
     const styles = ["cyan", "pink", "purple"];
     const emojis = ["👨‍🚀", "👩‍🚀", "🤖", "👽", "🦸"];
 
@@ -46,7 +48,6 @@ async function fetchAndRenderVoices() {
       const style = styles[index % styles.length];
       const emoji = emojis[index % emojis.length];
 
-      // Create HTML for Avatar
       const div = document.createElement("div");
       div.className = `voice-option ${style}`;
       div.onclick = () => selectVoice(v.id, v.name, div);
@@ -54,7 +55,6 @@ async function fetchAndRenderVoices() {
 
       grid.appendChild(div);
 
-      // Auto-select first one
       if (index === 0 && !selectedVoiceId) selectVoice(v.id, v.name, div);
     });
   } catch (e) {
@@ -95,7 +95,7 @@ function closeModal() {
 startBtn.onclick = async () => {
   statusMsg.innerText = "Connecting to Lal Bhai...";
   try {
-    socket = new WebSocket(`wss://${HOST}/call?voice_id=${selectedVoiceId}`);
+    socket = new WebSocket(`ws://${HOST}/call?voice_id=${selectedVoiceId}`);
     socket.binaryType = "arraybuffer";
 
     socket.onopen = async () => {
@@ -281,56 +281,156 @@ function floatTo16BitPCM(output) {
   }
   return buffer;
 }
-async function startRec() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-    });
-    mediaRecorder = new MediaRecorder(stream);
-    audioChunks = [];
-    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
-    mediaRecorder.onstop = () => {
-      recordedBlob = new Blob(audioChunks, { type: "audio/webm" });
-      document.getElementById("recordBtn").innerText = "✅ Captured";
-    };
-    mediaRecorder.start();
-    document.getElementById("recordBtn").innerText = "🔴 Recording...";
-  } catch (e) {
-    alert("Mic Error");
+
+async function toggleRecording() {
+  const btn = document.getElementById("recordBtn");
+  const timerDisplay = document.getElementById("recTimer");
+  const previewContainer = document.getElementById("previewContainer");
+
+  if (!isRecording) {
+    // --- START RECORDING ---
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      audioChunks = [];
+
+      mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+
+      mediaRecorder.onstop = () => {
+        // Create Audio Blob
+        recordedBlob = new Blob(audioChunks, { type: "audio/webm" });
+        const audioURL = URL.createObjectURL(recordedBlob);
+
+        // Show Preview
+        const audioEl = document.getElementById("audioPreview");
+        audioEl.src = audioURL;
+        previewContainer.style.display = "block";
+
+        // Reset UI
+        isRecording = false;
+        btn.innerText = "🔄 Record Again";
+        btn.classList.remove("recording-pulse");
+        timerDisplay.innerText = "Recorded successfully!";
+        clearInterval(recTimerInterval);
+
+        // Clear File Input if exists (user chose mic)
+        document.getElementById("cloneFile").value = "";
+      };
+
+      mediaRecorder.start();
+      isRecording = true;
+
+      // UI Updates
+      btn.innerText = "⏹ Stop Recording";
+      btn.classList.add("recording-pulse");
+      previewContainer.style.display = "none"; // Hide old preview
+      recordedBlob = null; // Clear old recording
+
+      // 30s Countdown Timer
+      let timeLeft = 30;
+      timerDisplay.innerText = `Recording... ${timeLeft}s remaining`;
+
+      recTimerInterval = setInterval(() => {
+        timeLeft--;
+        timerDisplay.innerText = `Recording... ${timeLeft}s remaining`;
+
+        if (timeLeft <= 0) {
+          stopRecording(); // Auto-stop
+        }
+      }, 1000);
+    } catch (e) {
+      alert("Microphone access denied or error: " + e.message);
+    }
+  } else {
+    // --- STOP RECORDING ---
+    stopRecording();
   }
 }
-function stopRec() {
-  if (mediaRecorder) mediaRecorder.stop();
+
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state !== "inactive") {
+    mediaRecorder.stop();
+    // Stop all tracks to release mic
+    mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+  }
 }
 
+function handleFileUpload(input) {
+  // If user uploads a file, clear the recorded audio
+  if (input.files.length > 0) {
+    recordedBlob = null;
+    document.getElementById("previewContainer").style.display = "none";
+    document.getElementById("recTimer").innerText = "File selected.";
+  }
+}
 async function submitClone() {
   const name = document.getElementById("cloneName").value;
-  const file = document.getElementById("cloneFile").files[0];
+  const fileInput = document.getElementById("cloneFile");
   const status = document.getElementById("cloneStatus");
+
+  if (!name) return (status.innerText = "❌ Please enter a voice name.");
 
   const formData = new FormData();
   formData.append("name", name);
-  if (recordedBlob) formData.append("files", recordedBlob, "mic.webm");
-  else if (file) formData.append("files", file);
-  else return (status.innerText = "❌ No Audio");
+
+  // Prioritize Microphone Recording, then File Upload
+  if (recordedBlob) {
+    formData.append("files", recordedBlob, "mic_recording.webm");
+  } else if (fileInput.files.length > 0) {
+    formData.append("files", fileInput.files[0]);
+  } else {
+    return (status.innerText = "❌ Please record audio or upload a file.");
+  }
 
   status.innerText = "⏳ Uploading...";
+
   try {
-    const res = await fetch(`https://${HOST}/clone`, {
+    const res = await fetch(`http://${HOST}/clone`, {
       method: "POST",
       body: formData,
     });
     const data = await res.json();
+
     if (data.status === "success" || data.status === "exists") {
-      status.innerText = "✅ Done!";
+      status.innerText = "✅ Voice Created!";
       await fetchAndRenderVoices();
-      switchView("call");
-      // Auto select new voice logic would go here
-    } else status.innerText = "❌ Error";
+      resetCloneForm();
+      // Switch back to call view after delay
+      setTimeout(() => {
+        switchView("call");
+        openModal();
+      }, 1500);
+    } else {
+      status.innerText = "❌ Error: " + (data.detail || "Unknown error");
+    }
   } catch (e) {
     status.innerText = "❌ Network Error";
+    console.error(e);
   }
 }
+
+function resetCloneForm() {
+  // Clear Inputs
+  document.getElementById("cloneName").value = "";
+  document.getElementById("cloneFile").value = "";
+
+  // Clear Recording Data
+  recordedBlob = null;
+  isRecording = false;
+
+  // Reset Recording UI
+  const recBtn = document.getElementById("recordBtn");
+  recBtn.innerText = "🔴 Tap to Record";
+  recBtn.classList.remove("recording-pulse");
+
+  // Hide Audio Player
+  document.getElementById("previewContainer").style.display = "none";
+  document.getElementById("audioPreview").src = "";
+
+  // Reset Timer Text
+  document.getElementById("recTimer").innerText = "";
+}
+
 function switchView(v) {
   document
     .querySelectorAll(".view")

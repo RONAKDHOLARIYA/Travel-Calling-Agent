@@ -73,39 +73,41 @@
       </div>
 
       <div id="view-clone" class="view">
-        <div
-          style="
-            background: rgba(255, 255, 255, 0.03);
-            padding: 20px;
-            border-radius: 16px;
-            flex: 1;
-          "
-        >
-          <h3 style="margin-top: 0; text-align: center; color: var(--primary)">
-            New Voice
-          </h3>
+        <div class="clone-box">
+          <h3 class="clone-title">New Voice</h3>
 
-          <label style="font-size: 0.8rem; color: #aaa">Voice Name</label>
-          <input type="text" id="cloneName" placeholder="e.g. Jarvis" />
+          <label class="input-label">Voice Name</label>
+          <input type="text" id="cloneName" placeholder="e.g. Sales Rep John" />
 
-          <label style="font-size: 0.8rem; color: #aaa">Record Sample</label>
+          <label class="input-label">Record Sample (Min 10s & Max 30s)</label>
+
           <button
             id="recordBtn"
             class="btn btn-record"
-            onmousedown="startRec()"
-            onmouseup="stopRec()"
-            ontouchstart="startRec()"
-            ontouchend="stopRec()"
+            onclick="toggleRecording()"
           >
-            🎙️ Hold to Record
+            🔴 Tap to Record
           </button>
 
-          <p style="text-align: center; margin: 10px 0; opacity: 0.5">- OR -</p>
+          <p id="recTimer" class="status-text" style="height: 15px"></p>
 
+          <div id="previewContainer" style="display: none; margin-top: 10px">
+            <label class="input-label" style="margin-top: 0">Preview:</label>
+            <audio
+              id="audioPreview"
+              controls
+              style="width: 100%; margin-bottom: 10px"
+            ></audio>
+          </div>
+
+          <p class="divider">- OR -</p>
+
+          <label class="input-label">Upload File</label>
           <input
             type="file"
             id="cloneFile"
-            style="width: 100%; font-size: 0.8rem"
+            class="file-input"
+            onchange="handleFileUpload(this)"
           />
 
           <button
@@ -115,15 +117,7 @@
           >
             ⚡ Create & Select
           </button>
-          <p
-            id="cloneStatus"
-            style="
-              text-align: center;
-              font-size: 0.8rem;
-              margin-top: 10px;
-              color: #aaa;
-            "
-          ></p>
+          <p id="cloneStatus" class="status-text"></p>
         </div>
       </div>
     </div>
